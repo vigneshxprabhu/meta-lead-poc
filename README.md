@@ -1,56 +1,110 @@
-# Welcome to your Expo app 👋
+# Meta Lead Ads PoC
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+A proof-of-concept demonstrating real-time Meta Lead Ads ingestion into a React Native (Expo) app via webhook and WebSocket.
 
-## Get started
+## Architecture
 
-1. Install dependencies
-
-   ```bash
-   npm install
-   ```
-
-2. Start the app
-
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
-
-```bash
-npm run reset-project
+```
+Meta Lead Testing Tool
+        │
+        ▼
+Meta Lead Webhook (POST /webhook)
+        │
+        ▼
+Cloudflare Quick Tunnel (localhost:3000)
+        │
+        ▼
+Node.js + Express Backend (port 3000)
+        │
+        ├── GET /webhook  → webhook verification
+        ├── POST /webhook → fetch lead from Meta Graph API → broadcast via WebSocket
+        └── POST /test-lead → manual test broadcast
+        │
+        ▼
+WebSocket Server (port 8080)
+        │
+        ▼
+React Native + Expo App (Android emulator)
+        │
+        ▼
+Live lead display (no refresh needed)
 ```
 
-This command will move the starter code to the **app-example** directory and create a blank **app** directory where you can start developing.
+## Setup & Run Order
 
-### Other setup steps
+### Prerequisites
+- Node.js ≥ 18 (for global `fetch`)
+- Android Studio + Pixel emulator (or physical device)
+- Meta Developer account with a Page and Lead Access permission
+- `cloudflared` CLI (for Quick Tunnel)
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+### 1. Backend
+```bash
+cd backend
+cp .env.example .env
+# Edit .env with your values:
+# META_PAGE_ACCESS_TOKEN=<from Meta Graph API Explorer>
+# WEBHOOK_VERIFY_TOKEN=<any random string, e.g. unque-test-token>
+npm install
+npm start
+# Runs on http://localhost:3000 (webhook) and ws://localhost:8080 (WebSocket)
+```
 
-## Learn more
+### 2. Android Emulator
+- Start a Pixel emulator from Android Studio
+- Note: the emulator reaches the host at `10.0.2.2` (not `localhost`)
 
-To learn more about developing your project with Expo, look at the following resources:
+### 3. Expo App
+```bash
+# From repo root
+npm install
+npx expo start
+# Press 'a' to open on Android emulator
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+### 4. Cloudflare Quick Tunnel
+```bash
+# In a new terminal
+cloudflared tunnel --url http://localhost:3000
+# Copy the https://<random>.trycloudflare.com URL
+```
 
-## Join the community
+### 5. Configure Meta Webhook
+- Go to Meta App Dashboard → Products → Webhooks → Lead Ads
+- Callback URL: `https://<your-tunnel>.trycloudflare.com/webhook`
+- Verify Token: same value as `WEBHOOK_VERIFY_TOKEN` in `.env`
+- Subscribe to `leadgen` events for your Page
 
-Join our community of developers creating universal apps.
+## Testing with Meta Lead Testing Tool
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+1. In Meta Business Manager → Page → Leads → **Lead Testing Tool**
+2. Select your Page and the form
+3. Fill in test data (name, email, phone)
+4. Click **Create Lead**
+5. The lead appears instantly in the open Expo app on the emulator
+
+**Alternative (no Meta):** POST directly to the test endpoint:
+```bash
+curl -X POST http://localhost:3000/test-lead \
+  -H "Content-Type: application/json" \
+  -d '{"name":"John Doe","email":"john@example.com","phone":"+15551234567"}'
+```
+
+## Environment Variables
+
+| Variable | Location | Description |
+|----------|----------|-------------|
+| `META_PAGE_ACCESS_TOKEN` | `backend/.env` | Page access token with `leads_retrieval` permission. Get from Graph API Explorer. |
+| `WEBHOOK_VERIFY_TOKEN` | `backend/.env` | Random string for webhook verification. Must match Meta webhook config. |
+
+## Assumptions & Limitations
+
+- **Testing Tool substitution:** Uses Meta Lead Testing Tool instead of a live ad. The webhook payload and Graph API flow are identical to production.
+- **Hardcoded ports:** Backend HTTP on 3000, WebSocket on 8080. Not configurable via env (PoC scope).
+- **Hardcoded WS URL in app:** `src/app/index.tsx` connects to `ws://172.24.198.235:8080` (host LAN IP). For emulator, change to `ws://10.0.2.2:8080`.
+- **No reconnect:** If the WebSocket disconnects, the app must be restarted to reconnect.
+- **No deduplication:** Meta webhook retries or repeated test submissions create duplicate cards.
+- **No authentication on endpoints:** `/webhook` (POST) and `/test-lead` are open; relies on Cloudflare tunnel URL secrecy.
+- **Single lead per webhook:** Only `entry[0].changes[0]` is processed.
+- **No persistence:** Leads exist only in app memory; lost on app restart.
+- **Android emulator only tested:** iOS/physical device not verified.
