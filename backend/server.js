@@ -26,6 +26,9 @@ app.get('/webhook', (req, res) => {
 
   return res.sendStatus(403);
 });
+
+
+
 async function fetchLead(leadId) {
   const response = await fetch(
     `https://graph.facebook.com/v26.0/${leadId}?access_token=${process.env.META_PAGE_ACCESS_TOKEN}`
@@ -38,6 +41,7 @@ async function fetchLead(leadId) {
 
   return response.json();
 }
+
 app.post('/webhook', async (req, res) => {
   console.log('Meta webhook received');
   console.log(JSON.stringify(req.body, null, 2));
@@ -46,6 +50,7 @@ app.post('/webhook', async (req, res) => {
     const leadId = req.body.entry?.[0]?.changes?.[0]?.value?.leadgen_id;
 
     if (!leadId) {
+       console.log("Lead is not present");
       return res.sendStatus(200);
     }
 
